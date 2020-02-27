@@ -1,0 +1,198 @@
+---
+title: "STAT 479- HW2"
+author: "Jane Jang"
+date: "2/27/2020"
+output: rmarkdown::github_document
+---
+
+```{R Library Load}
+library(blscrapeR)
+library(dplyr)
+library(tidyverse)
+library(glmnet)
+library(Matrix)
+```
+
+```{R BLS Datat Load and Lookup}
+BLS <- get_bls_county()
+head(BLS)
+tail(BLS)
+```
+
+```{R Bridges Data Load}
+bridges <- read.csv("2018AllRecordsDelimitedAllStates.csv")
+colnames(bridges)
+head(bridges)
+tail(bridges)
+```
+
+```{R Data Cleaning}
+
+summary(bridges$STATE_CODE_001)
+summary(bridges$COUNTY_CODE_003)
+
+bridge <- bridges %>%
+  filter(!(STATE_CODE_001 %in% c('G' , '1014', '164.11'))) %>%
+  filter(!(is.na(COUNTY_CODE_003)))
+
+#Confirm Data Cleaning
+summary(bridges$STATE_CODE_001)
+summary(bridges$COUNTY_CODE_003)
+
+#Rename Bridge Data Column
+bridge <- bridge %>%
+  rename(fips_state = STATE_CODE_001, fips_county = COUNTY_CODE_003)
+```
+
+```{R Sample Data Lookup}
+samplebridge <-sample_n(bridge,5000)
+sampleBLS <- sample_n(BLS, 1000)
+```
+
+```{R Merge Bridge and BLS(December)}
+data <-merge(bridge,BLS,by=c("fips_state","fips_county"))
+str(data)
+
+#Change some colnames structure (applied to some factors which has more than 900 factors)
+data$APPR_WIDTH_MT_032<- as.numeric(data$APPR_WIDTH_MT_032 )
+data$ROADWAY_WIDTH_MT_051 <- as.numeric(data$ROADWAY_WIDTH_MT_051)
+data$DECK_WIDTH_MT_052 <- as.numeric(data$DECK_WIDTH_MT_052)
+data$VERT_CLR_OVER_MT_053 <- as.numeric(data$VERT_CLR_OVER_MT_053)
+data$VERT_CLR_UND_054B <- as.numeric(data$VERT_CLR_UND_054B)
+data$INVENTORY_RATING_066 <- as.numeric(data$INVENTORY_RATING_066)
+#change the structure of fips_county to factor variable
+data$fips_county <- as.factor(data$fips_county)
+```
+
+```{R Select columns which has numeric value}
+finaldata1 <- data %>%
+  select_if(is.numeric)%>%
+  drop_na() %>%
+  select(-unemployed_rate)
+```
+
+```{R}
+finaldata2 <-data %>%
+  select_if(is.numeric)%>%
+  drop_na() %>%
+  select(-unemployed)
+```
+
+```{R first lasso model}
+x_var <- model.matrix(unemployed~.,finaldata1)[,-1]
+y_var <- finaldata1$unemployed
+lambda_seq<- 10^seq(2,-2, by= -.1)
+
+set.seed(12345)
+train = sample(1:nrow(x_var), nrow(x_var)/2)
+test = (-train)
+y_test = y_var[test]
+
+cv_output <-cv.glmnet(x_var[train,], y_var[train], alpha=1, lamda= lamda_seq)
+
+best_lam <- cv_output$lambda.min
+
+lasso_best <- glmnet(x_var[train,], y_var[train], alpha = 1, lambda = best_lam)
+
+pred <- predict(lasso_best, s=best_lam, newx = x_var[test,])
+
+mod <- cbind (y_var[test], pred)
+
+head(mod)
+tail(mod)
+
+coef(lasso_best)
+```
+
+```{R Second Lasso Model}
+x_var2 <- model.matrix(unemployed_rate~.,finaldata2)[,-1]
+y_var2 <- finaldata2$unemployed_rate
+lambda_seq<- 10^seq(2,-2, by= -.1)
+
+set.seed(12345)
+train2 = sample(1:nrow(x_var2), nrow(x_var2)/2)
+test2 = (-train2)
+y_test2 = y_var2[test2]
+
+cv_output2 <-cv.glmnet(x_var2[train2,], y_var2[train2], alpha=1, lamda= lamda_seq)
+
+best_lam2 <- cv_output2$lambda.min
+
+lasso_best2 <- glmnet(x_var2[train2,], y_var2[train2], alpha = 1, lambda = best_lam2)
+
+pred2 <- predict(lasso_best2, s=best_lam2, newx = x_var2[test,])
+
+mod2 <- cbind (y_var2[test2], pred2)
+
+head(mod2)
+tail(mod2)
+
+coef(lasso_best2)
+```
+
+```{R November Data Loading}
+November <-get_bls_county(date_mth = "November 2019")
+```
+
+```{R November Data Cleaning}
+November <- November %>%
+  rename( Nov_unemployed = unemployed, Nov_unemplyed_rate=unemployed_rate)
+
+Newdata <- merge(data, November, by =c("fips_state", "fips_county"))
+
+
+```
+
+```{R Change the structure of columns}
+
+Newdata$APPR_WIDTH_MT_032<- as.numeric(Newdata$APPR_WIDTH_MT_032 )
+Newdata$ROADWAY_WIDTH_MT_051 <- as.numeric(Newdata$ROADWAY_WIDTH_MT_051)
+Newdata$DECK_WIDTH_MT_052 <- as.numeric(Newdata$DECK_WIDTH_MT_052)
+Newdata$VERT_CLR_OVER_MT_053 <- as.numeric(Newdata$VERT_CLR_OVER_MT_053)
+Newdata$VERT_CLR_UND_054B <- as.numeric(Newdata$VERT_CLR_UND_054B)
+Newdata$INVENTORY_RATING_066 <- as.numeric(Newdata$INVENTORY_RATING_066)
+#change the structure of fips_county to factor variable
+Newdata$fips_county <- as.factor(Newdata$fips_county)
+
+#Save only columns which has numeric values
+Newdata <- Newdata %>%
+  select(-unemployed) %>%
+  drop_na() %>%
+  select_if(is.numeric)
+
+
+
+```
+
+```{R Third Lasso Regression}
+x_var3 <- model.matrix(unemployed_rate~.,Newdata)[,-1]
+y_var3 <- Newdata$unemployed_rate
+lambda_seq<- 10^seq(2,-2, by= -.1)
+
+set.seed(12345)
+train3 = sample(1:nrow(x_var3), nrow(x_var3)/2)
+test3 = (-train3)
+y_test3 = y_var3[test3]
+
+cv_output3 <-cv.glmnet(x_var3[train3,], y_var3[train3], alpha=1, lamda= lamda_seq)
+
+best_lam3 <- cv_output3$lambda.min
+
+lasso_best3 <- glmnet(x_var3[train3,], y_var3[train3], alpha = 1, lambda = best_lam3)
+
+pred3 <- predict(lasso_best3, s=best_lam3, newx = x_var3[test,])
+
+mod3 <- cbind (y_var3[test3], pred3)
+
+head(mod3)
+tail(mod3)
+
+coef(lasso_best3)
+```
+
+
+
+
+
+
+
